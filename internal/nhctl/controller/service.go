@@ -9,13 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/pkg/errors"
-	appsv1 "k8s.io/api/apps/v1"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	kblabels "k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"nocalhost/internal/nhctl/appmeta"
 	"nocalhost/internal/nhctl/common/base"
 	_const "nocalhost/internal/nhctl/const"
@@ -29,6 +22,14 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/pkg/errors"
+	appsv1 "k8s.io/api/apps/v1"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	kblabels "k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // Controller presents a k8s controller
@@ -72,6 +73,16 @@ func NewController(ns, name, appName, identifier string, svcType base.SvcType,
 
 	a := c.GetAppConfig().GetSvcConfigS(c.Name, c.Type)
 	c.config = &a
+
+	// skip invalid ContainerConfigs
+	for i := 0; i < len(c.config.ContainerConfigs); {
+		if c.config.ContainerConfigs[i] == nil {
+			c.config.ContainerConfigs = append(c.config.ContainerConfigs[:i], c.config.ContainerConfigs[i+1:]...)
+			continue
+		}
+
+		i += 1
+	}
 
 	return c, nil
 }
