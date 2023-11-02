@@ -607,6 +607,117 @@ func (c *Controller) sidecarContainerSSHUsed(DevLanguage string, DevImage string
 	}
 }
 
+func (c *Controller) applyVrDevConfig(podSpec *corev1.PodSpec, devContainer *corev1.Container, containerName string) error {
+
+	devConf := c.config.GetContainerDevConfig(containerName)
+	// 配置不存在则创建配置
+	if devConf == nil {
+		for _, c := range c.config.ContainerConfigs {
+			if c.Name == containerName {
+				c.Dev = &profile.ContainerDevConfig{}
+				devConf = c.Dev
+				break
+			}
+		}
+	}
+
+	//
+	// go模块缓存持久化存储
+	//
+	{
+		// // 创建hostPath
+		// exist := false
+		// for _, v := range podSpec.Volumes {
+		// 	if v.Name == "go-mod-cache" {
+		// 		exist = true
+		// 		break
+		// 	}
+		// }
+		// if !exist {
+		// 	hostPathType := corev1.HostPathDirectoryOrCreate
+		// 	podSpec.Volumes = append(podSpec.Volumes, corev1.Volume{
+		// 		Name: containerName,
+		// 		VolumeSource: corev1.VolumeSource{
+		// 			HostPath: &corev1.HostPathVolumeSource{
+		// 				Path: "/var/go-mod-cache",
+		// 				Type: &hostPathType,
+		// 			},
+		// 		},
+		// 	})
+		// }
+
+		// // 挂载到容器
+		// exist = false
+		// for _, v := range devContainer.VolumeMounts {
+		// 	if v.Name == "go-mod-cache" {
+		// 		exist = true
+		// 		break
+		// 	}
+		// }
+		// if !exist {
+		// 	devContainer.VolumeMounts = append(devContainer.VolumeMounts, corev1.VolumeMount{
+		// 		Name:      "go-mod-cache",
+		// 		ReadOnly:  false,
+		// 		MountPath: "/goooooo",
+		// 	})
+		// }
+
+		// exist := false
+		// for _, p := range devConf.PersistentVolumeDirs {
+		// 	if p != nil && p.Path == "/go" {
+		// 		exist = true
+		// 		break
+		// 	}
+		// }
+		// if !exist {
+		// 	devConf.PersistentVolumeDirs = append(devConf.PersistentVolumeDirs, &profile.PersistentVolumeDir{
+		// 		Path: "/go",
+		// 	})
+		// }
+	}
+
+	// 镜像拉取的secret
+	{
+		exist := false
+		secretName := "nocalhost-dev-secret"
+		for _, p := range podSpec.ImagePullSecrets {
+			if p.Name == secretName {
+				exist = true
+			}
+		}
+		if !exist {
+			podSpec.ImagePullSecrets = append(podSpec.ImagePullSecrets, corev1.LocalObjectReference{Name: secretName})
+		}
+	}
+
+	// tun
+	{
+		if devContainer.SecurityContext == nil {
+			devContainer.SecurityContext = &corev1.SecurityContext{
+				Capabilities: &corev1.Capabilities{},
+			}
+		}
+
+		exist := false
+		for _, a := range devContainer.SecurityContext.Capabilities.Add {
+			if a == "NET_ADMIN" {
+				exist = true
+			}
+		}
+
+		if !exist {
+			privileged := true
+			devContainer.SecurityContext.Privileged = &privileged
+			devContainer.SecurityContext.Capabilities.Add = append(devContainer.SecurityContext.Capabilities.Add, "NET_ADMIN")
+		}
+	}
+
+	// 配置启动vpn的命令
+	devContainer.Command = []string{"/bin/sh", "-c", "startvpn.sh && tail -f /dev/null"}
+
+	return nil
+}
+
 func (c *Controller) genContainersAndVolumes(podSpec *corev1.PodSpec,
 	containerName, devImage, storageClass string, duplicateDevMode bool) (*corev1.Container,
 	*corev1.Container, []corev1.Volume, error) {
@@ -708,6 +819,12 @@ func (c *Controller) genContainersAndVolumes(podSpec *corev1.PodSpec,
 	}
 	rq, _ := convertResourceQuota(r)
 	sideCarContainer.Resources = *rq
+
+	err = c.applyVrDevConfig(podSpec, devContainer, containerName)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	return devContainer, &sideCarContainer, devModeVolumes, nil
 }
 
